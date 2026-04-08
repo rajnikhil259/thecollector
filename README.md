@@ -111,6 +111,9 @@ The dramatic finale — always between exactly 2 players:
 ### Resignation
 When only 2 players remain, either player may voluntarily resign and become The Collector.
 
+## Deployment
+Deployed on render Open `http://thecollector-exb7.onrender.com/` in your browser.
+
 ## 👨‍💻 Author
 - Developed by [NIKHIL RAJ] 
 - 🎯 IIIT Manipur | B.Tech CSE

@@ -11,7 +11,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const rooms = {};
 
-// ─── Deck Helpers ─────────────────────────────────────────────────────────────
+// Deck Helpers
 function createDeck() {
   const suits = ['spades', 'hearts', 'diamonds', 'clubs'];
   const values = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
@@ -46,7 +46,7 @@ function findAceOfSpades(players) {
   return players[0].id;
 }
 
-// ─── Player Helpers ───────────────────────────────────────────────────────────
+// Player Helpers
 function activePlayers(players) {
   return players.filter(p => !p.eliminated);
 }
@@ -64,8 +64,7 @@ function nextActiveIndex(players, currentIndex) {
   return -1;
 }
 
-// ─── Round Helpers ────────────────────────────────────────────────────────────
-// Returns the round entry with the highest base suit card
+//  Round Helpers 
 function findHighest(round, baseSuit) {
   let winner = null;
   let highestVal = -1;
@@ -101,7 +100,7 @@ function eliminateZeroCardPlayers(room, excludeIds = []) {
   }
 }
 
-// ─── Room Init ────────────────────────────────────────────────────────────────
+// Room Init 
 function initRoom(roomCode) {
   rooms[roomCode] = {
     code: roomCode,
@@ -114,15 +113,15 @@ function initRoom(roomCode) {
     roundLeaderId: null,
     roundNumber: 0,
     firstRound: true,
-    endgameActive: false,   // true when 1v1 showdown is active
-    showdownDrawerId: null, // player who draws from waste pile in showdown
+    endgameActive: false,  
+    showdownDrawerId: null, 
     loser: null,
     host: null,
     currentTurnPlayerId: null,
   };
 }
 
-// ─── State Broadcasting ───────────────────────────────────────────────────────
+// State Broadcasting
 function broadcastState(roomCode) {
   const room = rooms[roomCode];
   if (!room) return;
@@ -179,7 +178,7 @@ function canPlayerSteal(room, playerId) {
   return room.players[nextIdx].id !== playerId;
 }
 
-// ─── Game Start ───────────────────────────────────────────────────────────────
+// Game Start 
 function startGame(roomCode) {
   const room = rooms[roomCode];
   const deck = shuffle(createDeck());
@@ -203,7 +202,7 @@ function startGame(roomCode) {
   io.to(roomCode).emit('gameStarted', { leaderId });
 }
 
-// ─── Game End ─────────────────────────────────────────────────────────────────
+// Game End 
 function endGame(roomCode, loserId) {
   const room = rooms[roomCode];
   room.phase = 'finished';
@@ -213,10 +212,7 @@ function endGame(roomCode, loserId) {
   broadcastState(roomCode);
 }
 
-// ─── RESOLVE CLEAN ROUND ──────────────────────────────────────────────────────
-// All active players have played. No interruption.
-// Cards go to waste pile. Biggest base suit card wins.
-// Then check endgame conditions.
+// RESOLVE CLEAN ROUND 
 function resolveRound(roomCode) {
   const room = rooms[roomCode];
   const round = room.currentRound;
@@ -225,7 +221,6 @@ function resolveRound(roomCode) {
   const winnerEntry = findHighest(round, room.baseSuit) || round[0];
   const winnerPlayer = room.players.find(p => p.id === winnerEntry.playerId);
 
-  // Cards always go to waste pile in clean rounds
   room.wastePile.push(...allCards);
   room.currentRound = [];
   room.firstRound = false;
@@ -237,8 +232,7 @@ function resolveRound(roomCode) {
     toWaste: true,
   });
 
-  // ── ENDGAME CHECK ──
-  // After playing, check who now has 0 cards
+  //  ENDGAME CHECK 
   const zeroCardPlayerIds = round
     .map(e => e.playerId)
     .filter(id => {
@@ -247,7 +241,6 @@ function resolveRound(roomCode) {
     });
 
   if (zeroCardPlayerIds.length === 0) {
-    // Nobody ran out — normal round, winner leads next
     eliminateZeroCardPlayers(room, []);
     const stillActive = activePlayers(room.players);
     if (stillActive.length <= 1) { endGame(roomCode, stillActive[0]?.id); return; }
@@ -258,13 +251,8 @@ function resolveRound(roomCode) {
     return;
   }
 
-  // Some players have 0 cards after this round
-  // Find players who still have cards (n-card players)
   const nCardPlayers = room.players.filter(p => !p.eliminated && p.hand.length > 0);
 
-  // ── CASE 1: ALL players played their last card (everyone has 0 cards) ──
-  // Winner (highest card) LOSES — they won the round but have nobody to play against
-  // All others escape safely
   if (nCardPlayers.length === 0) {
     for (const p of room.players) {
       if (!p.eliminated && p.id !== winnerEntry.playerId) {
@@ -276,15 +264,6 @@ function resolveRound(roomCode) {
     return;
   }
 
-  // ── CASE 2: Some players still have cards ──
-  // First eliminate players with 0 cards who are NOT the winner — they escape safely
-  // But DON'T eliminate yet — need to check the "bring back" rule first
-
-  // Check: after eliminating 0-card players, how many remain?
-  // Remaining = nCardPlayers + (winner if they have 0 cards)
-  // But winner with 0 cards may or may not escape depending on who else remains
-
-  // Eliminate all 0-card players EXCEPT winner for now
   for (const p of room.players) {
     if (!p.eliminated && p.hand.length === 0 && p.id !== winnerEntry.playerId) {
       p.eliminated = true;
@@ -292,17 +271,14 @@ function resolveRound(roomCode) {
     }
   }
 
-  // Now check remaining active players (excluding winner if they have 0 cards)
   const remainingWithCards = activePlayers(room.players).filter(p => p.hand.length > 0);
 
   if (winnerPlayer.hand.length > 0) {
-    // Winner still has cards — they are an n-card player
-    // Check: only 1 player remains and it's the winner → they lose (won round, no opponent)
     if (remainingWithCards.length === 1 && remainingWithCards[0].id === winnerEntry.playerId) {
       endGame(roomCode, winnerEntry.playerId);
       return;
     }
-    // Normal: winner leads next round
+
     const stillActive = activePlayers(room.players);
     if (stillActive.length <= 1) { endGame(roomCode, stillActive[0]?.id); return; }
     room.roundLeaderId = winnerEntry.playerId;
@@ -312,37 +288,26 @@ function resolveRound(roomCode) {
     return;
   }
 
-  // Winner has 0 cards — check if they escape or get brought back
   if (remainingWithCards.length === 0) {
-    // No one has cards left — winner loses (nobody to play against)
     endGame(roomCode, winnerEntry.playerId);
     return;
   }
 
   if (remainingWithCards.length >= 1) {
-    // Only 1 n-card player remains — apply "bring back" check
-    // Check if the sole remaining player played the biggest card
     const remainingIds = remainingWithCards.map(p => p.id);
-    // Include winner in the check pool (winner has 0 cards)
     const allRemainingIds = [...remainingIds, winnerEntry.playerId];
     const biggestAmongRemaining = findHighestAmong(round, room.baseSuit, allRemainingIds);
 
     if (biggestAmongRemaining && biggestAmongRemaining.playerId === remainingWithCards[0]?.id) {
-      // The n-card player played the biggest card among remaining → they LOSE (Bhabhi)
-      // Winner (0 cards) escapes
       winnerPlayer.eliminated = true;
       io.to(roomCode).emit('playerEliminated', { playerId: winnerPlayer.id, name: winnerPlayer.name });
       endGame(roomCode, remainingWithCards[0].id);
       return;
     } else {
-      // n-card player did NOT play biggest → bring back winner (0 cards) to play from waste pile
-      // Winner does NOT escape — they become the showdown drawer
-      // Start 1v1 showdown: winner draws from waste pile, n-card player plays from hand
       const nCardPlayer = remainingWithCards[0];
       room.endgameActive = true;
       room.showdownDrawerId = winnerEntry.playerId;
 
-      // Winner leads (biggest card) — they draw from waste pile
       room.roundLeaderId = winnerEntry.playerId;
       room.currentTurnPlayerId = winnerEntry.playerId;
       room.roundNumber++;
@@ -359,14 +324,12 @@ function resolveRound(roomCode) {
     }
   }
 
-  // 2+ n-card players remain — winner (0 cards) escapes safely
   winnerPlayer.eliminated = true;
   io.to(roomCode).emit('playerEliminated', { playerId: winnerPlayer.id, name: winnerPlayer.name });
 
   const stillActive = activePlayers(room.players);
   if (stillActive.length <= 1) { endGame(roomCode, stillActive[0]?.id); return; }
 
-  // Among remaining players, biggest base suit card leads next round
   const remainingIdsAll = stillActive.map(p => p.id);
   const newLeaderEntry = findHighestAmong(round, room.baseSuit, remainingIdsAll);
   const newLeader = newLeaderEntry
@@ -379,16 +342,13 @@ function resolveRound(roomCode) {
   broadcastState(roomCode);
 }
 
-// ─── RESOLVE INTERRUPTED ROUND ────────────────────────────────────────────────
-// A player had no base suit — plays off suit — round stops.
-// Highest base suit card played so far picks up ALL cards → becomes round leader.
-// Interrupting player WINS that confrontation.
+// RESOLVE INTERRUPTED ROUND
+
 function resolveInterrupted(roomCode) {
   const room = rooms[roomCode];
   const round = room.currentRound;
   const allCards = round.map(e => e.card);
 
-  // Highest base suit card in round picks up all cards
   const pickerEntry = findHighest(round, room.baseSuit) || round[0];
   const pickerPlayer = room.players.find(p => p.id === pickerEntry.playerId);
 
@@ -404,7 +364,7 @@ function resolveInterrupted(roomCode) {
     interrupted: true,
   });
 
-  // Players who played before interruption and now have 0 cards escape safely
+
   eliminateZeroCardPlayers(room, []);
 
   const stillActive = activePlayers(room.players);
@@ -413,16 +373,14 @@ function resolveInterrupted(roomCode) {
     return;
   }
 
-  // Picker (who picked up cards) leads next round
   room.roundLeaderId = pickerEntry.playerId;
   room.currentTurnPlayerId = pickerEntry.playerId;
   room.roundNumber++;
   broadcastState(roomCode);
 }
 
-// ─── RESOLVE 1v1 SHOWDOWN ROUND ───────────────────────────────────────────────
-// Drawer played from waste pile. nCard player responded.
-// Biggest card leads next. If someone can't follow → they WIN (other picks up = Bhabhi).
+// RESOLVE 1v1 SHOWDOWN ROUND 
+
 function resolveShowdownRound(roomCode) {
   const room = rooms[roomCode];
   const round = room.currentRound;
@@ -431,7 +389,6 @@ function resolveShowdownRound(roomCode) {
   const winnerEntry = findHighest(round, room.baseSuit) || round[0];
   const winnerPlayer = room.players.find(p => p.id === winnerEntry.playerId);
 
-  // Cards go to waste pile
   room.wastePile.push(...allCards);
   room.currentRound = [];
 
@@ -443,23 +400,15 @@ function resolveShowdownRound(roomCode) {
     showdown: true,
   });
 
-  // Winner of this round leads next — biggest card leads
-  // If winner is the drawer (0 cards) → they draw again from waste pile
-  // If winner is nCard player → they play from hand, drawer must draw from waste pile
-  room.roundLeaderId = winnerEntry.playerId;
-  room.currentTurnPlayerId = winnerEntry.playerId;
   room.roundNumber++;
 
-  // Update showdown drawer: whoever is NOT the winner now must draw from waste pile next
-  // Actually the rule is: whoever leads plays their card (sets base suit)
-  // The other player follows. If drawer leads → draws from waste pile. If nCard leads → plays from hand.
-  // The "drawer" role stays with the player who has 0 cards (they always draw from waste pile)
-  // showdownDrawerId stays fixed — they always draw from waste pile regardless of who leads
+  room.roundLeaderId = winnerEntry.playerId;
+  room.currentTurnPlayerId = winnerEntry.playerId;
 
   broadcastState(roomCode);
 }
 
-// ─── Socket Events ────────────────────────────────────────────────────────────
+// Socket Events
 io.on('connection', (socket) => {
 
   socket.on('createRoom', ({ name }) => {
@@ -501,9 +450,7 @@ io.on('connection', (socket) => {
     const player = room.players.find(p => p.id === socket.id);
     if (!player || player.eliminated) return;
 
-    // ── SHOWDOWN: drawer draws from waste pile ──
-    // In showdown, the drawer picks a card from waste pile by index
-    // cardIndex here is the waste pile index they chose
+    // SHOWDOWN: drawer draws from waste pile
     if (room.endgameActive && room.showdownDrawerId === socket.id && player.hand.length === 0) {
       if (room.wastePile.length === 0) return socket.emit('error', { msg: 'Waste pile is empty!' });
       const wasteIdx = cardIndex % room.wastePile.length; // they pick a number, we mod to valid range
@@ -515,13 +462,12 @@ io.on('connection', (socket) => {
         card: drawnCard,
         wasteIdx,
       });
-      // Now they play that card immediately
+
       player.hand.splice(player.hand.indexOf(drawnCard), 1);
       room.baseSuit = drawnCard.suit;
       room.currentRound.push({ playerId: socket.id, playerName: player.name, card: drawnCard });
       io.to(code).emit('cardPlayed', { playerId: socket.id, playerName: player.name, card: drawnCard, baseSuit: room.baseSuit });
 
-      // Move to other player's turn
       const active = activePlayers(room.players);
       const currentIdx = active.findIndex(p => p.id === socket.id);
       const nextIdx = (currentIdx + 1) % active.length;
@@ -533,7 +479,6 @@ io.on('connection', (socket) => {
     if (cardIndex < 0 || cardIndex >= player.hand.length) return;
     const card = player.hand[cardIndex];
 
-    // ── ENFORCE BASE SUIT (all rounds including first) ──
     if (room.currentRound.length > 0 && room.baseSuit) {
       const hasSuit = player.hand.some(c => c.suit === room.baseSuit);
       if (hasSuit && card.suit !== room.baseSuit) {
@@ -543,7 +488,6 @@ io.on('connection', (socket) => {
 
     player.hand.splice(cardIndex, 1);
 
-    // First card of round sets base suit
     if (room.currentRound.length === 0) {
       room.baseSuit = card.suit;
     }
@@ -551,14 +495,10 @@ io.on('connection', (socket) => {
     room.currentRound.push({ playerId: socket.id, playerName: player.name, card });
     io.to(code).emit('cardPlayed', { playerId: socket.id, playerName: player.name, card, baseSuit: room.baseSuit });
 
-    // ── SHOWDOWN INTERRUPTION ──
-    // In showdown, if nCard player has no base suit → they interrupt → they WIN → drawer is Bhabhi
-    // If drawer draws wrong suit → they interrupt → they WIN → nCard player is Bhabhi
+
     if (room.endgameActive && room.currentRound.length === 2) {
-      // Both played — check if anyone played off suit (interruption)
       const offSuitEntry = room.currentRound.find(e => e.card.suit !== room.baseSuit);
       if (offSuitEntry) {
-        // Off-suit player interrupts → they WIN → the other is Bhabhi
         const loserEntry = room.currentRound.find(e => e.playerId !== offSuitEntry.playerId);
         room.wastePile.push(...room.currentRound.map(e => e.card));
         room.currentRound = [];
@@ -569,19 +509,16 @@ io.on('connection', (socket) => {
         endGame(code, loserEntry.playerId);
         return;
       }
-      // Both played base suit — resolve showdown round normally
       resolveShowdownRound(code);
       return;
     }
 
-    // ── NORMAL INTERRUPTION (round 2+ only, not first round) ──
     if (!room.firstRound && !room.endgameActive && card.suit !== room.baseSuit) {
       io.to(code).emit('roundInterrupted', { playerId: socket.id, playerName: player.name });
       resolveInterrupted(code);
       return;
     }
 
-    // Check if all active players have played
     const active = activePlayers(room.players);
     const playersWhoPlayed = new Set(room.currentRound.map(e => e.playerId));
     const allPlayed = active.every(p => playersWhoPlayed.has(p.id));
@@ -596,7 +533,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── DRAW FROM WASTE (showdown drawer picks a number) ──
   socket.on('drawFromWaste', ({ code, wasteNumber }) => {
     const room = rooms[code];
     if (!room || room.phase !== 'playing') return;
@@ -607,7 +543,6 @@ io.on('connection', (socket) => {
 
     const player = room.players.find(p => p.id === socket.id);
 
-    // wasteNumber is 1-based choice, mod to valid index
     const wasteIdx = (wasteNumber - 1) % room.wastePile.length;
     const drawnCard = room.wastePile.splice(wasteIdx, 1)[0];
 
@@ -618,16 +553,37 @@ io.on('connection', (socket) => {
       wasteNumber,
     });
 
-    // Set as base suit and play it
-    room.baseSuit = drawnCard.suit;
+    if (room.currentRound.length === 0) {
+      room.baseSuit = drawnCard.suit;
+      room.currentRound.push({ playerId: socket.id, playerName: player.name, card: drawnCard });
+      io.to(code).emit('cardPlayed', { playerId: socket.id, playerName: player.name, card: drawnCard, baseSuit: room.baseSuit });
+
+      const active = activePlayers(room.players);
+      const currentIdx = active.findIndex(p => p.id === socket.id);
+      const nextIdx = (currentIdx + 1) % active.length;
+      room.currentTurnPlayerId = active[nextIdx].id;
+      broadcastState(code);
+      return;
+    }
+
     room.currentRound.push({ playerId: socket.id, playerName: player.name, card: drawnCard });
     io.to(code).emit('cardPlayed', { playerId: socket.id, playerName: player.name, card: drawnCard, baseSuit: room.baseSuit });
 
-    // Move to other player's turn
-    const active = activePlayers(room.players);
-    const currentIdx = active.findIndex(p => p.id === socket.id);
-    const nextIdx = (currentIdx + 1) % active.length;
-    room.currentTurnPlayerId = active[nextIdx].id;
+    if (drawnCard.suit !== room.baseSuit) {
+      const nCardEntry = room.currentRound.find(e => e.playerId !== socket.id);
+      room.wastePile.push(...room.currentRound.map(e => e.card));
+      room.currentRound = [];
+      io.to(code).emit('showdownOver', {
+        winnerId: socket.id,
+        loserId: nCardEntry.playerId,
+      });
+      endGame(code, nCardEntry.playerId);
+      return;
+    }
+
+    resolveShowdownRound(code);
+    return;
+
     broadcastState(code);
   });
 
